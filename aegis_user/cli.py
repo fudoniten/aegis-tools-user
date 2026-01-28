@@ -1,0 +1,329 @@
+"""Aegis User CLI - Self-service secrets management for users."""
+
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+import typer
+
+app = typer.Typer(
+    name="aegis-user",
+    help="Aegis User Tools - Manage your personal secrets.",
+    no_args_is_help=True,
+)
+
+CONFIG_DIR = Path.home() / ".config" / "aegis-user"
+KEY_FILE = CONFIG_DIR / "public-key"
+
+
+def get_repo_path() -> Path:
+    """Get the user's secrets repo path.
+    
+    Looks for:
+    1. Current directory if it looks like a user repo
+    2. AEGIS_USER_REPO environment variable
+    """
+    import os
+    
+    # Check current directory
+    cwd = Path.cwd()
+    if (cwd / ".key").exists() or (cwd / "env").exists() or (cwd / "files").exists():
+        return cwd
+    
+    # Check environment
+    env_path = os.environ.get("AEGIS_USER_REPO")
+    if env_path:
+        return Path(env_path)
+    
+    typer.echo("Error: Could not find user secrets repo", err=True)
+    typer.echo("Run from within your aegis-secrets-<username> repo", err=True)
+    typer.echo("Or set AEGIS_USER_REPO environment variable", err=True)
+    raise typer.Exit(1)
+
+
+def get_public_key() -> str:
+    """Get the user's public key for encryption."""
+    repo = get_repo_path()
+    
+    # First check repo's .key file
+    repo_key = repo / ".key"
+    if repo_key.exists():
+        return repo_key.read_text().strip()
+    
+    # Then check config
+    if KEY_FILE.exists():
+        return KEY_FILE.read_text().strip()
+    
+    typer.echo("Error: No public key configured", err=True)
+    typer.echo("Run 'aegis-user init --key=<public-key>' first", err=True)
+    raise typer.Exit(1)
+
+
+def encrypt_for_repo(content: str, output_path: Path) -> None:
+    """Encrypt content with the repo's public key."""
+    public_key = get_public_key()
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    cmd = [
+        "age", "--encrypt", "--armor",
+        "--recipient", public_key,
+        "--output", str(output_path),
+    ]
+    
+    subprocess.run(cmd, input=content, text=True, check=True)
+
+
+# =============================================================================
+# Commands
+# =============================================================================
+
+@app.command()
+def init(
+    key: Optional[str] = typer.Option(None, "--key", "-k", help="Public key from admin"),
+    key_file: Optional[Path] = typer.Option(None, "--key-file", "-f", help="File containing public key"),
+):
+    """Initialize your secrets repo with the public key from admin.
+    
+    The admin will give you a public key when they run 'aegis add-user'.
+    Use that key here to set up your repo.
+    """
+    if key is None and key_file is None:
+        typer.echo("Error: Provide either --key or --key-file", err=True)
+        raise typer.Exit(1)
+    
+    if key_file:
+        if not key_file.exists():
+            typer.echo(f"Error: Key file not found: {key_file}", err=True)
+            raise typer.Exit(1)
+        key = key_file.read_text().strip()
+    
+    # At this point key must be set
+    assert key is not None
+    
+    # Validate it looks like an age public key
+    if not key.startswith("age1"):
+        typer.echo("Error: Key doesn't look like an age public key (should start with 'age1')", err=True)
+        raise typer.Exit(1)
+    
+    # Try to find/create repo
+    repo = get_repo_path()
+    
+    # Save key to repo
+    key_path = repo / ".key"
+    key_path.write_text(key + "\n")
+    
+    # Also save to config dir for convenience
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    KEY_FILE.write_text(key + "\n")
+    
+    # Create directory structure
+    (repo / "env").mkdir(exist_ok=True)
+    (repo / "files").mkdir(exist_ok=True)
+    
+    typer.secho("Initialized!", fg=typer.colors.GREEN)
+    typer.echo(f"  Repo: {repo}")
+    typer.echo(f"  Key saved to: {key_path}")
+    typer.echo("")
+    typer.echo("Next steps:")
+    typer.echo("  aegis-user add-env GITHUB_TOKEN 'ghp_...'")
+    typer.echo("  aegis-user add-file aws-creds ~/.aws/credentials")
+
+
+@app.command("add-env")
+def add_env(
+    name: str = typer.Argument(..., help="Environment variable name"),
+    value: Optional[str] = typer.Argument(None, help="Value (omit to read from stdin)"),
+    file: Optional[Path] = typer.Option(None, "--file", "-f", help="Read value from file"),
+):
+    """Add an encrypted environment variable.
+    
+    Examples:
+        aegis-user add-env GITHUB_TOKEN ghp_xxxx
+        aegis-user add-env API_KEY --file ./key.txt
+        echo "secret" | aegis-user add-env MY_SECRET
+    """
+    repo = get_repo_path()
+    
+    # Get the value
+    if file:
+        if not file.exists():
+            typer.echo(f"Error: File not found: {file}", err=True)
+            raise typer.Exit(1)
+        value = file.read_text()
+    elif value is None:
+        # Read from stdin
+        import sys
+        if sys.stdin.isatty():
+            value = typer.prompt("Enter value", hide_input=True)
+        else:
+            value = sys.stdin.read()
+    
+    # At this point value must be set
+    assert value is not None
+    
+    # Remove trailing newline if present
+    value = value.rstrip("\n")
+    
+    output_path = repo / "env" / f"{name}.age"
+    
+    if output_path.exists():
+        if not typer.confirm(f"{name} already exists. Overwrite?"):
+            raise typer.Abort()
+    
+    encrypt_for_repo(value, output_path)
+    
+    typer.secho(f"Added: {name}", fg=typer.colors.GREEN)
+    typer.echo(f"  File: {output_path}")
+    typer.echo("")
+    typer.echo("Don't forget to commit and push!")
+
+
+@app.command("add-file")
+def add_file(
+    name: str = typer.Argument(..., help="Name for this secret file"),
+    file: Path = typer.Argument(..., help="Path to file to encrypt"),
+):
+    """Add an encrypted file.
+    
+    Examples:
+        aegis-user add-file aws-creds ~/.aws/credentials
+        aegis-user add-file ssh-key ~/.ssh/id_ed25519
+    """
+    repo = get_repo_path()
+    
+    if not file.exists():
+        typer.echo(f"Error: File not found: {file}", err=True)
+        raise typer.Exit(1)
+    
+    content = file.read_text()
+    output_path = repo / "files" / f"{name}.age"
+    
+    if output_path.exists():
+        if not typer.confirm(f"{name} already exists. Overwrite?"):
+            raise typer.Abort()
+    
+    encrypt_for_repo(content, output_path)
+    
+    typer.secho(f"Added: {name}", fg=typer.colors.GREEN)
+    typer.echo(f"  File: {output_path}")
+    typer.echo("")
+    typer.echo("Don't forget to commit and push!")
+
+
+@app.command()
+def remove(
+    name: str = typer.Argument(..., help="Secret name to remove"),
+):
+    """Remove a secret."""
+    repo = get_repo_path()
+    
+    # Check both env and files
+    env_path = repo / "env" / f"{name}.age"
+    files_path = repo / "files" / f"{name}.age"
+    
+    removed = False
+    
+    if env_path.exists():
+        if typer.confirm(f"Remove env var {name}?"):
+            env_path.unlink()
+            typer.echo(f"Removed: {env_path}")
+            removed = True
+    
+    if files_path.exists():
+        if typer.confirm(f"Remove file {name}?"):
+            files_path.unlink()
+            typer.echo(f"Removed: {files_path}")
+            removed = True
+    
+    if not removed:
+        typer.echo(f"Secret not found: {name}")
+        raise typer.Exit(1)
+    
+    typer.echo("")
+    typer.echo("Don't forget to commit and push!")
+
+
+@app.command()
+def list():
+    """List all secrets in the repo."""
+    repo = get_repo_path()
+    
+    typer.echo(f"Secrets in {repo}:\n")
+    
+    # List env vars
+    env_dir = repo / "env"
+    if env_dir.exists():
+        env_files = sorted(env_dir.glob("*.age"))
+        if env_files:
+            typer.echo("Environment variables:")
+            for f in env_files:
+                size = f.stat().st_size
+                typer.echo(f"  {f.stem} ({size} bytes)")
+        else:
+            typer.echo("Environment variables: (none)")
+    
+    typer.echo("")
+    
+    # List files
+    files_dir = repo / "files"
+    if files_dir.exists():
+        file_files = sorted(files_dir.glob("*.age"))
+        if file_files:
+            typer.echo("Files:")
+            for f in file_files:
+                size = f.stat().st_size
+                typer.echo(f"  {f.stem} ({size} bytes)")
+        else:
+            typer.echo("Files: (none)")
+
+
+@app.command()
+def status():
+    """Show status of the secrets repo."""
+    repo = get_repo_path()
+    
+    typer.echo(f"Repo: {repo}")
+    
+    # Check key
+    key_file = repo / ".key"
+    if key_file.exists():
+        key = key_file.read_text().strip()
+        typer.echo(f"Key: {key[:20]}...")
+    else:
+        typer.echo("Key: NOT CONFIGURED")
+        typer.echo("  Run 'aegis-user init --key=<key>' first")
+        return
+    
+    # Count secrets
+    env_count = len(list((repo / "env").glob("*.age"))) if (repo / "env").exists() else 0
+    files_count = len(list((repo / "files").glob("*.age"))) if (repo / "files").exists() else 0
+    
+    typer.echo(f"Env vars: {env_count}")
+    typer.echo(f"Files: {files_count}")
+    
+    # Git status
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            changes = len([l for l in result.stdout.strip().split("\n") if l])
+            if changes:
+                typer.echo(f"\nUncommitted changes: {changes}")
+            else:
+                typer.echo("\nGit: clean")
+    except:
+        pass
+
+
+def main():
+    app()
+
+
+if __name__ == "__main__":
+    main()

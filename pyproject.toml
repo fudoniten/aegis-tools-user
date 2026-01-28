@@ -1,0 +1,10 @@
+[project]
+name = "aegis-tools-user"
+version = "0.1.0"
+description = "Aegis User Tools - Self-service secrets management"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
