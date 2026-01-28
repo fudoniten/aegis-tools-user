@@ -11,22 +11,57 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
-        python = pkgs.python3.withPackages (ps: with ps; [ typer pytest ]);
+        pythonPkgs = pkgs.python3.withPackages (ps: with ps; [ typer pytest ]);
+
+        # Build the Python package
+        aegisUserPackage = pkgs.python3Packages.buildPythonApplication {
+          pname = "aegis-tools-user";
+          version = "0.1.0";
+          pyproject = true;
+
+          src = ./.;
+
+          nativeBuildInputs = with pkgs.python3Packages; [ setuptools wheel ];
+
+          propagatedBuildInputs = with pkgs.python3Packages; [ typer ];
+
+          # Don't run tests during build
+          doCheck = false;
+        };
 
       in {
         devShells.default = pkgs.mkShell {
-          buildInputs = [ python pkgs.age pkgs.git ];
+          buildInputs = [ pythonPkgs pkgs.age pkgs.git ];
 
           shellHook = ''
             export PYTHONPATH="$PWD:$PYTHONPATH"
             echo "Aegis User Tools development environment"
             echo ""
-            echo "Run: python -m aegis_user.cli --help"
+            echo "Run: aegis-user --help"
           '';
         };
 
-        packages.default = pkgs.writeShellScriptBin "aegis-user" ''
-          exec ${python}/bin/python -m aegis_user.cli "$@"
-        '';
-      });
+        packages = {
+          default = self.packages.${system}.aegis-user;
+
+          # The main CLI package with all runtime dependencies
+          aegis-user = pkgs.writeShellApplication {
+            name = "aegis-user";
+            runtimeInputs = [ aegisUserPackage pkgs.age pkgs.git ];
+            text = ''
+              exec aegis-user "$@"
+            '';
+          };
+        };
+
+        # Overlay for use in NixOS configurations  
+        overlays.default = final: prev: {
+          aegis-user = self.packages.${system}.aegis-user;
+        };
+      }) // {
+        # System-independent outputs
+        overlays.default = final: prev: {
+          aegis-user = self.packages.${prev.system}.aegis-user;
+        };
+      };
 }

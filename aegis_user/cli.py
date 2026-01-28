@@ -1,5 +1,6 @@
 """Aegis User CLI - Self-service secrets management for users."""
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -16,28 +17,48 @@ CONFIG_DIR = Path.home() / ".config" / "aegis-user"
 KEY_FILE = CONFIG_DIR / "public-key"
 
 
-def get_repo_path() -> Path:
+def _is_user_repo(path: Path) -> bool:
+    """Check if a path looks like a user secrets repo."""
+    return (
+        (path / ".key").exists() or 
+        (path / "env").exists() or 
+        (path / "files").exists()
+    )
+
+
+def get_repo_path(allow_missing: bool = False) -> Path:
     """Get the user's secrets repo path.
     
-    Looks for:
-    1. Current directory if it looks like a user repo
-    2. AEGIS_USER_REPO environment variable
+    Resolution order:
+    1. AEGIS_USER environment variable
+    2. Current directory (if it looks like a user repo)
+    
+    Args:
+        allow_missing: If True, return cwd even if not a valid repo (for init)
     """
-    import os
+    # Check AEGIS_USER environment variable first
+    env_path = os.environ.get("AEGIS_USER")
+    if env_path:
+        path = Path(env_path)
+        if path.exists():
+            if _is_user_repo(path) or allow_missing:
+                return path
+            typer.echo(f"Error: AEGIS_USER points to invalid repo: {env_path}", err=True)
+            typer.echo("Directory exists but doesn't look like a user secrets repo.", err=True)
+            raise typer.Exit(1)
+        typer.echo(f"Error: AEGIS_USER path does not exist: {env_path}", err=True)
+        raise typer.Exit(1)
     
     # Check current directory
     cwd = Path.cwd()
-    if (cwd / ".key").exists() or (cwd / "env").exists() or (cwd / "files").exists():
+    if _is_user_repo(cwd) or allow_missing:
         return cwd
     
-    # Check environment
-    env_path = os.environ.get("AEGIS_USER_REPO")
-    if env_path:
-        return Path(env_path)
-    
     typer.echo("Error: Could not find user secrets repo", err=True)
-    typer.echo("Run from within your aegis-secrets-<username> repo", err=True)
-    typer.echo("Or set AEGIS_USER_REPO environment variable", err=True)
+    typer.echo("", err=True)
+    typer.echo("Options:", err=True)
+    typer.echo("  1. Run from within your aegis-secrets-<username> repo", err=True)
+    typer.echo("  2. Set AEGIS_USER environment variable", err=True)
     raise typer.Exit(1)
 
 
@@ -106,8 +127,8 @@ def init(
         typer.echo("Error: Key doesn't look like an age public key (should start with 'age1')", err=True)
         raise typer.Exit(1)
     
-    # Try to find/create repo
-    repo = get_repo_path()
+    # Try to find/create repo (allow_missing for init)
+    repo = get_repo_path(allow_missing=True)
     
     # Save key to repo
     key_path = repo / ".key"
