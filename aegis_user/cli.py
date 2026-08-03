@@ -80,19 +80,26 @@ def get_public_key() -> str:
     raise typer.Exit(1)
 
 
-def encrypt_for_repo(content: str, output_path: Path) -> None:
-    """Encrypt content with the repo's public key."""
+def encrypt_for_repo(content: str | bytes, output_path: Path) -> None:
+    """Encrypt content with the repo's public key.
+
+    Binary clean: bytes are written through unchanged, str is encoded as UTF-8
+    first. add-file has to carry whatever the user points it at -- a p12, a
+    DER certificate, a keytab -- and reading those as text corrupts or fails.
+    """
     public_key = get_public_key()
-    
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
+    payload = content.encode("utf-8") if isinstance(content, str) else content
+
     cmd = [
         "age", "--encrypt", "--armor",
         "--recipient", public_key,
         "--output", str(output_path),
     ]
-    
-    subprocess.run(cmd, input=content, text=True, check=True)
+
+    subprocess.run(cmd, input=payload, check=True)
 
 
 # =============================================================================
@@ -171,7 +178,16 @@ def add_env(
         if not file.exists():
             typer.echo(f"Error: File not found: {file}", err=True)
             raise typer.Exit(1)
-        value = file.read_text()
+        try:
+            value = file.read_bytes().decode("utf-8")
+        except UnicodeDecodeError:
+            typer.echo(
+                f"Error: {file} is not UTF-8 text.\n"
+                f"Environment variables must be text; use 'add-file' for "
+                f"binary secrets.",
+                err=True,
+            )
+            raise typer.Exit(1)
     elif value is None:
         # Read from stdin
         import sys
@@ -217,7 +233,8 @@ def add_file(
         typer.echo(f"Error: File not found: {file}", err=True)
         raise typer.Exit(1)
     
-    content = file.read_text()
+    # Bytes, not text: this command takes arbitrary files.
+    content = file.read_bytes()
     output_path = repo / "files" / f"{name}.age"
     
     if output_path.exists():

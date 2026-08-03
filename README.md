@@ -115,7 +115,7 @@ aegis-user add-env NAME value
 aegis-user add-env NAME --file=./secret.txt
 echo "secret" | aegis-user add-env NAME
 
-# Add files
+# Add files (any content -- certificates, keytabs, archives)
 aegis-user add-file name /path/to/file
 
 # List all secrets
@@ -127,6 +127,10 @@ aegis-user remove NAME
 # Show repo status
 aegis-user status
 ```
+
+`add-env` values are text — they end up as environment variables, so a
+non-UTF-8 file is rejected with a pointer to `add-file`. `add-file` takes
+arbitrary bytes and preserves them exactly, including trailing newlines.
 
 ### Environment Variables
 
