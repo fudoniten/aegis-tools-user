@@ -45,7 +45,7 @@ nix develop
 
 ### 1. Get Your Public Key
 
-Your system administrator will run `aegis add-user <your-username>` and give you a public key. It looks like:
+Your system administrator will run `aegis user add <your-username>` and give you a public key. It looks like:
 
 ```
 age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
@@ -156,7 +156,7 @@ aegis-secrets-myusername/
 
 1. You encrypt secrets with your public key using `aegis-user add-*`
 2. Secrets are stored as `.age` files in your repo
-3. The admin runs `aegis build-user-secrets` to:
+3. The admin runs `aegis build user-secrets` to:
    - Decrypt your secrets with the admin's copy of your private key
    - Re-encrypt them for each of your authorized hosts
 4. On deployment, your hosts decrypt the secrets using their master key
