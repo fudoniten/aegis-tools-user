@@ -197,3 +197,29 @@ def test_init_rejects_non_age_key(tmp_path: Path, monkeypatch):
 
     assert result.exit_code == 1
     assert "age public key" in out(result)
+
+
+def test_help_documents_the_environment_variables():
+    """A path resolved from the environment is invisible unless it is named."""
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    out = (result.stdout or "") + (getattr(result, "stderr", None) or "")
+    assert "AEGIS_USER" in out
+
+
+def test_epilog_survives_every_typer_version():
+    """Typer versions before 0.27 collapse single linebreaks in the epilog.
+
+    They do it unconditionally, and without honouring the \\b marker that
+    works in help text, so a line only stays a line by being its own
+    blank-line-separated paragraph.
+    """
+    from typer.main import get_command
+
+    epilog = get_command(app).epilog or ""
+    assert epilog
+
+    assert "\b" not in epilog
+    for paragraph in epilog.split("\n\n"):
+        assert "\n" not in paragraph.strip(), paragraph

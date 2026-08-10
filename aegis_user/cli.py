@@ -10,6 +10,16 @@ import typer
 app = typer.Typer(
     name="aegis-user",
     help="Aegis User Tools - Manage your personal secrets.",
+    # One paragraph per source line, and no \b markers: typer renders the
+    # epilog through Rich, and versions before 0.27 flatten every single
+    # newline in it into a space while newer ones keep it.  A paragraph that
+    # wraps in the source therefore breaks in a different place on each, so
+    # these lines run long and are left for the terminal to wrap.
+    epilog="""Environment:
+
+  AEGIS_USER   your aegis-secrets-<username> repo; without it, the current directory, which must already look like one (a .key, env/ or files/)
+
+Your public key is read from <repo>/.key, then ~/.config/aegis-user/public-key; 'aegis-user init --key=age1...' writes it.""",
     no_args_is_help=True,
 )
 
