@@ -10,6 +10,16 @@ import typer
 app = typer.Typer(
     name="aegis-user",
     help="Aegis User Tools - Manage your personal secrets.",
+    # \b marks the block as pre-formatted; without it the table is rewrapped
+    # into a paragraph and stops being a table.
+    epilog="""Environment:
+\b
+  AEGIS_USER    path to your aegis-secrets-<username> repo. Without it,
+                aegis-user uses the current directory, which must already
+                look like a user repo (it has a .key, env/ or files/).
+
+Your public key is read from <repo>/.key, falling back to
+~/.config/aegis-user/public-key; 'aegis-user init --key=age1...' writes it.""",
     no_args_is_help=True,
 )
 

@@ -197,3 +197,12 @@ def test_init_rejects_non_age_key(tmp_path: Path, monkeypatch):
 
     assert result.exit_code == 1
     assert "age public key" in out(result)
+
+
+def test_help_documents_the_environment_variables():
+    """A path resolved from the environment is invisible unless it is named."""
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    out = (result.stdout or "") + (getattr(result, "stderr", None) or "")
+    assert "AEGIS_USER" in out
