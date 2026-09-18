@@ -2,6 +2,13 @@
 
 Self-service command-line tools for managing your personal encrypted secrets. Users can add environment variables and files that get deployed to their authorized hosts.
 
+> **Status: the last mile does not work yet.** Everything in this repo does its
+> job — `aegis-user` encrypts what you give it, and `aegis build user-secrets`
+> in aegis-tools-system re-encrypts it per host. But the `aegis.secrets` NixOS
+> module cannot currently decrypt the result, so nothing lands on a host. See
+> [aegis/TODO.md](../aegis/TODO.md) for what is missing and who owns each half.
+> Adding secrets now is safe and they will deploy once that is fixed.
+
 ## Installation
 
 ### NixOS (Recommended)
@@ -132,6 +139,12 @@ aegis-user status
 non-UTF-8 file is rejected with a pointer to `add-file`. `add-file` takes
 arbitrary bytes and preserves them exactly, including trailing newlines.
 
+`add-file` has no `--target`: a file secret is placed at
+`/run/aegis/users/<username>/files/<name>` and nowhere else. There is no way to
+ask for it in your home directory. The manifest format already carries `target`
+and `mode` fields for this, but nothing populates them —
+[aegis/TODO.md](../aegis/TODO.md) tracks it.
+
 ### Environment Variables
 
 | Variable | Description |
@@ -159,8 +172,13 @@ aegis-secrets-myusername/
 3. The admin runs `aegis build-user-secrets` to:
    - Decrypt your secrets with the admin's copy of your private key
    - Re-encrypt them for each of your authorized hosts
-4. On deployment, your hosts decrypt the secrets using their master key
-5. Secrets appear as environment variables or files in your session
+4. On deployment, your hosts decrypt the secrets using their host master key
+5. Secrets appear under `/run/aegis/users/<username>/` — `env/<NAME>` for
+   environment variables, `files/<name>` for files
+6. The `aegis.userSecrets` Home Manager module exports the `env/` entries as
+   session variables
+
+Steps 4-6 are not working today; see the status note at the top.
 
 ## Security Notes
 

@@ -1,6 +1,0 @@
-Metadata-Version: 2.4
-Name: aegis-tools-user
-Version: 0.1.0
-Summary: Aegis User Tools - Self-service secrets management
-Requires-Python: >=3.11
-Requires-Dist: typer>=0.9.0
