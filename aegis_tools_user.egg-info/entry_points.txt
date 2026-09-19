@@ -1,2 +1,0 @@
-[console_scripts]
-aegis-user = aegis_user.cli:main
