@@ -5,6 +5,7 @@ The repo had no tests at all, and `add-file` read every secret with
 raised UnicodeDecodeError. Nothing caught it because nothing ran.
 """
 
+import pytest
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -223,3 +224,31 @@ def test_epilog_survives_every_typer_version():
     assert "\b" not in epilog
     for paragraph in epilog.split("\n\n"):
         assert "\n" not in paragraph.strip(), paragraph
+
+
+# Names: the same rules 'aegis user pull' enforces on the admin side ---------
+
+
+@pytest.mark.parametrize("name", ["not-a-var", "1ST", "A B", "../X"])
+def test_add_env_rejects_bad_names(user_repo: Path, name):
+    result = runner.invoke(app, ["add-env", "--", name, "value"])
+    assert result.exit_code == 1
+    assert "not an environment variable name" in result.output
+    assert not list((user_repo / "env").iterdir())
+
+
+@pytest.mark.parametrize("name", ["-rf", ".hidden", "a/b", ""])
+def test_add_file_rejects_bad_names(user_repo: Path, tmp_path: Path, name):
+    source = tmp_path / "src"
+    source.write_text("x")
+    result = runner.invoke(app, ["add-file", "--", name, str(source)])
+    assert result.exit_code == 1
+    assert not list((user_repo / "files").iterdir())
+
+
+def test_add_file_rejects_oversized(user_repo: Path, tmp_path: Path):
+    source = tmp_path / "big"
+    source.write_bytes(b"x" * (1024 * 1024 + 1))
+    result = runner.invoke(app, ["add-file", "big", str(source)])
+    assert result.exit_code == 1
+    assert "rejects secrets over" in result.output

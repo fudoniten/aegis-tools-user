@@ -1,6 +1,7 @@
 """Aegis User CLI - Self-service secrets management for users."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -22,6 +23,24 @@ app = typer.Typer(
 Your public key is read from <repo>/.key, then ~/.config/aegis-user/public-key; 'aegis-user init --key=age1...' writes it.""",
     no_args_is_help=True,
 )
+
+# The same rules 'aegis user pull' enforces: names become file names on every
+# host you reach, and env names become environment variable names.  Checked
+# here too so a bad name fails now rather than at the admin's next pull.
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+FILE_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+MAX_BYTES = 1024 * 1024
+
+
+def _check_name(name: str, env: bool) -> None:
+    pattern = ENV_NAME_RE if env else FILE_NAME_RE
+    if not pattern.match(name):
+        what = "an environment variable name" if env else "a secret name"
+        rule = ("letters, digits and _, not starting with a digit" if env
+                else "letters, digits, _ . and -, not starting with . or -")
+        typer.echo(f"Error: '{name}' is not {what} ({rule})", err=True)
+        raise typer.Exit(1)
+
 
 CONFIG_DIR = Path.home() / ".config" / "aegis-user"
 KEY_FILE = CONFIG_DIR / "public-key"
@@ -181,6 +200,7 @@ def add_env(
         aegis-user add-env API_KEY --file ./key.txt
         echo "secret" | aegis-user add-env MY_SECRET
     """
+    _check_name(name, env=True)
     repo = get_repo_path()
     
     # Get the value
@@ -237,6 +257,7 @@ def add_file(
         aegis-user add-file aws-creds ~/.aws/credentials
         aegis-user add-file ssh-key ~/.ssh/id_ed25519
     """
+    _check_name(name, env=False)
     repo = get_repo_path()
     
     if not file.exists():
@@ -245,6 +266,13 @@ def add_file(
     
     # Bytes, not text: this command takes arbitrary files.
     content = file.read_bytes()
+    if len(content) > MAX_BYTES:
+        typer.echo(
+            f"Error: {file} is {len(content)} bytes; the admin's pull rejects "
+            f"secrets over {MAX_BYTES} bytes",
+            err=True,
+        )
+        raise typer.Exit(1)
     output_path = repo / "files" / f"{name}.age"
     
     if output_path.exists():

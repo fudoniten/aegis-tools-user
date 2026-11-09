@@ -45,13 +45,17 @@ nix develop
 
 ### 1. Get Your Public Key
 
-Your system administrator will run `aegis add-user <your-username>` and give you a public key. It looks like:
+Your system administrator will run `aegis user add <your-username> --repo-url <your repo>` and give you a public key. It looks like:
 
 ```
 age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
 ```
 
 ### 2. Create Your Secrets Repository
+
+Any git repo you can push to, on any host the admin can clone from (it can
+be public: everything in it is encrypted, though secret *names* are visible).
+Tell the admin its URL.
 
 ```bash
 mkdir aegis-secrets-myusername
@@ -86,7 +90,7 @@ git commit -m "Add secrets"
 git push
 ```
 
-Your secrets will be deployed to your authorized hosts on the next `aegis build`.
+Your secrets reach your authorized hosts after the admin runs `aegis user pull` and `aegis build user-secrets`, and deploys.
 
 ## Usage
 
@@ -156,11 +160,15 @@ aegis-secrets-myusername/
 
 1. You encrypt secrets with your public key using `aegis-user add-*`
 2. Secrets are stored as `.age` files in your repo
-3. The admin runs `aegis build-user-secrets` to:
+3. The admin runs `aegis user pull`, which copies your encrypted files into
+   the system repo after checking them: names must be safe (env names must be
+   valid variable names), no symlinks, at most 1 MiB each, and every file must
+   decrypt with your key. One bad file means nothing is pulled.
+4. The admin runs `aegis build user-secrets` to:
    - Decrypt your secrets with the admin's copy of your private key
    - Re-encrypt them for each of your authorized hosts
-4. On deployment, your hosts decrypt the secrets using their master key
-5. Secrets appear as environment variables or files in your session
+5. On deployment, your hosts decrypt the secrets using their master key
+6. Secrets appear as environment variables or files in your session
 
 ## Security Notes
 
